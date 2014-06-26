@@ -4,7 +4,7 @@
 
 . /lib/functions.sh
 
-# 'data' partition on NAND contains UBI
+# 'ubi' partition on NAND contains UBI
 CI_UBIPART="ubi"
 
 nand_find_volume() {
@@ -97,9 +97,9 @@ nand_restore_config() {
 
 nand_upgrade_prepare_ubi() {
 	local rootfs_length="$1"
-	local rootfs_type="$1"
-	local has_kernel="${2:-0}"
-	local has_env="${3:-0}"
+	local rootfs_type="$2"
+	local has_kernel="${3:-0}"
+	local has_env="${4:-0}"
 
 	local mtdnum="$( find_mtd_index "$CI_UBIPART" )"
 	if [ ! "$mtdnum" ]; then
@@ -188,6 +188,11 @@ nand_upgrade_ubinized() {
 	local ubi_file="$1"
 	local mtdnum="$(find_mtd_index "$CI_UBIPART")"
 
+	[ ! "$mtdnum" ] && {
+		CI_UBIPART="rootfs"
+		mtdnum="$(find_mtd_index "$CI_UBIPART")"
+	}
+
 	if [ ! "$mtdnum" ]; then
 		echo "cannot find mtd device $CI_UBIPART"
 		reboot -f
@@ -201,9 +206,19 @@ nand_upgrade_ubinized() {
 	nand_do_upgrade_success
 }
 
-nand_do_upgrade_stage2() {
-	[ "$(identify $1)" == "ubi" ] && nand_upgrade_ubinized $1
+nand_upgrade_ubifs() {
+	local rootfs_length=`(cat $1 | wc -c) 2> /dev/null`
 
+	nand_upgrade_prepare_ubi "$rootfs_length" "ubifs" "0" "0"
+	
+	local ubidev="$( nand_find_ubi "$CI_UBIPART" )"
+	local root_ubivol="$(nand_find_volume $ubidev rootfs)"
+	ubiupdatevol /dev/$root_ubivol -s $rootfs_length $1
+
+	nand_do_upgrade_success
+}
+
+nand_upgrade_tar() {
 	local tar_file="$1"
 	local board_name="$(cat /tmp/sysinfo/board_name)"
 	local kernel_mtd="$(find_mtd_index kernel)"
@@ -227,7 +242,7 @@ nand_do_upgrade_stage2() {
 	[ "$has_kernel" = "1" ] && {
 		local kern_ubivol="$(nand_find_volume $ubidev kernel)"
 	 	tar xf $tar_file sysupgrade-$board_name/kernel -O | \
-			ubiupdatevol /dev/$kern_ubivol -s $kern_length -
+			ubiupdatevol /dev/$kern_ubivol -s $kernel_length -
 	}
 
 	local root_ubivol="$(nand_find_volume $ubidev rootfs)"
@@ -235,6 +250,16 @@ nand_do_upgrade_stage2() {
 		ubiupdatevol /dev/$root_ubivol -s $rootfs_length -
 
 	nand_do_upgrade_success
+}
+
+nand_do_upgrade_stage2() {
+	local file_type=$(identify $1)
+
+	[ ! "$(find_mtd_index "$CI_UBIPART")" ] && CI_UBIPART="rootfs"
+
+	[ "$file_type" == "ubi" ] && nand_upgrade_ubinized $1
+	[ "$file_type" == "ubifs" ] && nand_upgrade_ubifs $1
+	nand_upgrade_tar $1
 }
 
 nand_upgrade_stage2() {
@@ -281,8 +306,9 @@ nand_do_platform_check() {
 	local board_name="$1"
 	local tar_file="$2"
 	local control_length=`(tar xf $tar_file sysupgrade-$board_name/CONTROL -O | wc -c) 2> /dev/null`
-	
-	[ "$control_length" = 0 -a "$(identify $2)" != "ubi" ] && {
+	local file_type="$(identify $2)"
+
+	[ "$control_length" = 0 -a "$file_type" != "ubi" -a "$file_type" != "ubifs" ] && {
 		echo "Invalid sysupgrade file."
 		return 1
 	}

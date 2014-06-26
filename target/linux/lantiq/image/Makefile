@@ -12,7 +12,6 @@ include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/image.mk
 
 JFFS2_BLOCKSIZE = 64k 128k 256k
-NAND_BLOCKSIZE = 512:16k
 
 LOADER_MAKE := $(NO_TRACE_MAKE) -C lzma-loader KDIR=$(KDIR)
 
@@ -171,13 +170,6 @@ define Image/Build/jffs2-256k
 	cat $(KDIR)/uImage-$(2)-$(1) $(KDIR)/root.$(1) > $(BIN_DIR)/$(IMG_PREFIX)-$(2)-$(1).image
 endef
 
-define Image/Build/jffs2-nand-512-16k
-	dd if=$(KDIR)/uImage-$(2) of=$(KDIR)/uImage-$(2)-$(1) bs=16k conv=sync
-	$(CP) $(KDIR)/uImage-$(2)-$(1) $(BIN_DIR)/uImage-$(2)-$(1)
-	$(CP) $(KDIR)/root.$(1) $(BIN_DIR)/root-$(2)-$(1)
-	cat $(KDIR)/uImage-$(2)-$(1) $(KDIR)/root.$(1) > $(BIN_DIR)/$(IMG_PREFIX)-$(2)-$(1).image
-endef
-
 define Image/Build/ubifs
 
 ifneq ($($(PROFILE)_UBIFS_OPTS),)
@@ -189,6 +181,7 @@ define Image/Build/ubi
 
 ifneq ($($(PROFILE)_UBI_OPTS),)
 	$(CP) $(KDIR)/root.ubi $(BIN_DIR)/$(IMG_PREFIX)-$(PROFILE)-rootfs.ubi
+	$(CP) $(KDIR)/root-overlay.ubi $(BIN_DIR)/$(IMG_PREFIX)-$(PROFILE)-rootfs-overlay.ubi
 endif
 endef
 
